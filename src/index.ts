@@ -1,0 +1,45 @@
+import { loadEnvironment } from './config/env.js';
+import { createDiscordClient } from './discord/client.js';
+import { registerInteractionHandler } from './discord/interactionHandler.js';
+import { createGitHubClient } from './github/client.js';
+import { createLogger } from './utils/logger.js';
+
+async function main(): Promise<void> {
+  const environment = loadEnvironment();
+  const logger = createLogger(environment.LOG_LEVEL);
+  const client = createDiscordClient();
+
+  const githubClient = environment.GITHUB_TOKEN
+    ? createGitHubClient(environment.GITHUB_TOKEN)
+    : undefined;
+  registerInteractionHandler(client, { environment: environment.NODE_ENV, logger, githubClient });
+
+  client.once('ready', (readyClient) => {
+    logger.info(
+      { userId: readyClient.user.id, username: readyClient.user.tag },
+      'Discord client is ready',
+    );
+  });
+  client.on('error', (error) => logger.error({ err: error }, 'Discord client error'));
+  process.on('unhandledRejection', (error) => logger.error({ err: error }, 'Unhandled rejection'));
+  process.on('uncaughtException', (error) => logger.fatal({ err: error }, 'Uncaught exception'));
+
+  let stopping = false;
+  const shutdown = (signal: string): void => {
+    if (stopping) return;
+    stopping = true;
+    logger.info({ signal }, 'Stopping Discord client');
+    client.destroy();
+    process.exitCode = 0;
+  };
+  process.once('SIGINT', () => shutdown('SIGINT'));
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+
+  await client.login(environment.DISCORD_TOKEN);
+}
+
+main().catch((error: unknown) => {
+  console.error('Bot startup failed. Check environment configuration and Discord credentials.');
+  console.error(error instanceof Error ? error.message : error);
+  process.exitCode = 1;
+});
