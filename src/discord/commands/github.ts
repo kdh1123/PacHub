@@ -3,10 +3,13 @@ import type { Octokit } from '@octokit/rest';
 import { ZodError } from 'zod';
 
 import { getIssue } from '../../github/issues.js';
-import { numberedRepositoryInputSchema, repositoryInputSchema } from '../../github/input.js';
+import { numberedRepositoryInputSchema } from '../../github/input.js';
 import { getPullRequest } from '../../github/pullRequests.js';
 import { getRepository } from '../../github/repositories.js';
 import { toGitHubUserMessage } from '../../github/errors.js';
+import type { SettingsStore } from '../../database/settingsStore.js';
+import { authorize } from '../../security/authorization.js';
+import { requiresConfiguredAccess, resolveRepositoryInput } from '../repositoryContext.js';
 
 const EMBED_COLOR = 0x24292f;
 const maxFieldLength = 1_024;
@@ -28,6 +31,16 @@ function gitHubErrorMessage(error: unknown): string {
     return `입력값이 올바르지 않습니다: ${error.issues[0]?.message ?? '형식을 확인해 주세요.'}`;
   if (error instanceof Error && error.message === 'PULL_REQUEST_NOT_ISSUE')
     return '요청한 번호는 이슈가 아니라 Pull Request입니다. /pr 명령어를 사용해 주세요.';
+  if (error instanceof Error && error.message === 'REPOSITORY_PAIR_REQUIRED')
+    return 'owner와 repository는 함께 입력해야 합니다.';
+  if (
+    error instanceof Error &&
+    (error.message === 'DEFAULT_REPOSITORY_UNAVAILABLE' ||
+      error.message === 'DEFAULT_REPOSITORY_NOT_CONFIGURED')
+  )
+    return '현재 Discord 서버에 기본 GitHub 저장소가 연결되어 있지 않습니다. 서버 관리자에게 /github-connect 설정을 요청해 주세요.';
+  if (error instanceof Error && error.message === 'PERMISSION_DENIED')
+    return `이 명령을 실행할 권한이 없습니다. 필요 권한: VIEWER${'actual' in error && error.actual ? `, 현재 권한: ${String(error.actual)}` : ''}`;
   return toGitHubUserMessage(error);
 }
 
@@ -47,25 +60,27 @@ async function respondWithError(
   await interaction.editReply({ content: message, embeds: [], allowedMentions: { parse: [] } });
 }
 
-export function createGitHubCommands(client: Octokit | undefined) {
+export function createGitHubCommands(client: Octokit | undefined, store?: SettingsStore) {
   return {
     repo: {
       data: new SlashCommandBuilder()
         .setName('repo')
         .setDescription('GitHub 저장소 정보를 조회합니다.')
         .addStringOption((option) =>
-          option.setName('owner').setDescription('소유자 또는 조직').setRequired(true),
+          option.setName('owner').setDescription('소유자 또는 조직').setRequired(false),
         )
         .addStringOption((option) =>
-          option.setName('repository').setDescription('저장소 이름').setRequired(true),
+          option.setName('repository').setDescription('저장소 이름').setRequired(false),
         ),
       async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ ephemeral: true });
         try {
-          const input = repositoryInputSchema.parse({
-            owner: interaction.options.getString('owner', true),
-            repository: interaction.options.getString('repository', true),
-          });
+          if (requiresConfiguredAccess(interaction, store)) {
+            const result = store && authorize(interaction, store, 'VIEWER');
+            if (!result?.allowed)
+              throw Object.assign(new Error('PERMISSION_DENIED'), { actual: result?.actualLevel });
+          }
+          const input = resolveRepositoryInput(interaction, store);
           const repository = await getRepository(clientOrReply(client), input);
           const embed = new EmbedBuilder()
             .setColor(EMBED_COLOR)
@@ -103,10 +118,10 @@ export function createGitHubCommands(client: Octokit | undefined) {
         .setName('issue')
         .setDescription('GitHub 이슈를 조회합니다.')
         .addStringOption((option) =>
-          option.setName('owner').setDescription('소유자 또는 조직').setRequired(true),
+          option.setName('owner').setDescription('소유자 또는 조직').setRequired(false),
         )
         .addStringOption((option) =>
-          option.setName('repository').setDescription('저장소 이름').setRequired(true),
+          option.setName('repository').setDescription('저장소 이름').setRequired(false),
         )
         .addIntegerOption((option) =>
           option.setName('number').setDescription('이슈 번호').setRequired(true).setMinValue(1),
@@ -114,9 +129,13 @@ export function createGitHubCommands(client: Octokit | undefined) {
       async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ ephemeral: true });
         try {
+          if (requiresConfiguredAccess(interaction, store)) {
+            const result = store && authorize(interaction, store, 'VIEWER');
+            if (!result?.allowed)
+              throw Object.assign(new Error('PERMISSION_DENIED'), { actual: result?.actualLevel });
+          }
           const input = numberedRepositoryInputSchema.parse({
-            owner: interaction.options.getString('owner', true),
-            repository: interaction.options.getString('repository', true),
+            ...resolveRepositoryInput(interaction, store),
             number: interaction.options.getInteger('number', true),
           });
           const issue = await getIssue(clientOrReply(client), input);
@@ -172,10 +191,10 @@ export function createGitHubCommands(client: Octokit | undefined) {
         .setName('pr')
         .setDescription('GitHub Pull Request를 조회합니다.')
         .addStringOption((option) =>
-          option.setName('owner').setDescription('소유자 또는 조직').setRequired(true),
+          option.setName('owner').setDescription('소유자 또는 조직').setRequired(false),
         )
         .addStringOption((option) =>
-          option.setName('repository').setDescription('저장소 이름').setRequired(true),
+          option.setName('repository').setDescription('저장소 이름').setRequired(false),
         )
         .addIntegerOption((option) =>
           option.setName('number').setDescription('PR 번호').setRequired(true).setMinValue(1),
@@ -183,9 +202,13 @@ export function createGitHubCommands(client: Octokit | undefined) {
       async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ ephemeral: true });
         try {
+          if (requiresConfiguredAccess(interaction, store)) {
+            const result = store && authorize(interaction, store, 'VIEWER');
+            if (!result?.allowed)
+              throw Object.assign(new Error('PERMISSION_DENIED'), { actual: result?.actualLevel });
+          }
           const input = numberedRepositoryInputSchema.parse({
-            owner: interaction.options.getString('owner', true),
-            repository: interaction.options.getString('repository', true),
+            ...resolveRepositoryInput(interaction, store),
             number: interaction.options.getInteger('number', true),
           });
           const { pullRequest, ciState } = await getPullRequest(clientOrReply(client), input);

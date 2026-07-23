@@ -4,18 +4,28 @@ import { loadEnvironment } from '../config/env.js';
 import { pingCommand } from './commands/ping.js';
 import { createGitHubCommands } from './commands/github.js';
 import { createReviewCommand } from './commands/review.js';
+import { SettingsStore } from '../database/settingsStore.js';
+import { createSettingsCommands } from './commands/githubSettings.js';
 
 async function main(): Promise<void> {
   const environment = loadEnvironment();
   const rest = new REST({ version: '10' }).setToken(environment.DISCORD_TOKEN);
-  const githubCommands = createGitHubCommands(undefined);
-  const reviewCommand = createReviewCommand(undefined);
+  const store = new SettingsStore(environment.DATABASE_URL);
+  const githubCommands = createGitHubCommands(undefined, store);
+  const reviewCommand = createReviewCommand(undefined, undefined, store);
+  const settingsCommands = createSettingsCommands(store);
   const body = [
     pingCommand.data.toJSON(),
     githubCommands.repo.data.toJSON(),
     githubCommands.issue.data.toJSON(),
     githubCommands.pr.data.toJSON(),
     reviewCommand.data.toJSON(),
+    settingsCommands.connect.data.toJSON(),
+    settingsCommands.disconnect.data.toJSON(),
+    settingsCommands.config.data.toJSON(),
+    settingsCommands.roleAdd.data.toJSON(),
+    settingsCommands.roleRemove.data.toJSON(),
+    settingsCommands.roles.data.toJSON(),
   ];
 
   if (environment.DISCORD_GUILD_ID) {
@@ -25,15 +35,13 @@ async function main(): Promise<void> {
         body,
       },
     );
-    console.log(
-      'Registered /ping, /repo, /issue, /pr, and /review for the configured development guild.',
-    );
+    console.log('Registered GitHub collaboration commands for the configured development guild.');
     return;
   }
 
   await rest.put(Routes.applicationCommands(environment.DISCORD_CLIENT_ID), { body });
   console.log(
-    'Registered /ping, /repo, /issue, /pr, and /review globally. Global updates may take up to an hour.',
+    'Registered GitHub collaboration commands globally. Global updates may take up to an hour.',
   );
 }
 

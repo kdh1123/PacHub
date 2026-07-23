@@ -5,6 +5,9 @@ import { ZodError } from 'zod';
 
 import { toGitHubUserMessage } from '../../github/errors.js';
 import { numberedRepositoryInputSchema } from '../../github/input.js';
+import type { SettingsStore } from '../../database/settingsStore.js';
+import { authorize } from '../../security/authorization.js';
+import { requiresConfiguredAccess, resolveRepositoryInput } from '../repositoryContext.js';
 import { reviewPullRequest } from '../../review/reviewService.js';
 import type { PullRequestReviewResult, ReviewFinding } from '../../review/types.js';
 
@@ -75,16 +78,20 @@ function createEmbeds(result: PullRequestReviewResult): EmbedBuilder[] {
   return [summary, details];
 }
 
-export function createReviewCommand(client: Octokit | undefined, aiProvider?: AiProvider) {
+export function createReviewCommand(
+  client: Octokit | undefined,
+  aiProvider?: AiProvider,
+  store?: SettingsStore,
+) {
   return {
     data: new SlashCommandBuilder()
       .setName('review')
       .setDescription('Pull Request 변경사항을 규칙 기반으로 요약합니다.')
       .addStringOption((option) =>
-        option.setName('owner').setDescription('소유자 또는 조직').setRequired(true),
+        option.setName('owner').setDescription('소유자 또는 조직').setRequired(false),
       )
       .addStringOption((option) =>
-        option.setName('repository').setDescription('저장소 이름').setRequired(true),
+        option.setName('repository').setDescription('저장소 이름').setRequired(false),
       )
       .addIntegerOption((option) =>
         option
@@ -97,9 +104,12 @@ export function createReviewCommand(client: Octokit | undefined, aiProvider?: Ai
       await interaction.deferReply({ ephemeral: true });
       try {
         if (!client) throw new Error('GITHUB_NOT_CONFIGURED');
+        if (requiresConfiguredAccess(interaction, store)) {
+          const result = store && authorize(interaction, store, 'REVIEWER');
+          if (!result?.allowed) throw new Error('REVIEW_PERMISSION_DENIED');
+        }
         const input = numberedRepositoryInputSchema.parse({
-          owner: interaction.options.getString('owner', true),
-          repository: interaction.options.getString('repository', true),
+          ...resolveRepositoryInput(interaction, store),
           number: interaction.options.getInteger('pr-number', true),
         });
         const result = await reviewPullRequest(client, input, aiProvider);
@@ -131,9 +141,17 @@ export function createReviewCommand(client: Octokit | undefined, aiProvider?: Ai
         const message =
           error instanceof Error && error.message === 'GITHUB_NOT_CONFIGURED'
             ? 'GitHub 조회가 설정되지 않았습니다. 서버 관리자에게 `GITHUB_TOKEN` 설정을 요청해 주세요.'
-            : error instanceof ZodError
-              ? `입력값이 올바르지 않습니다: ${error.issues[0]?.message ?? '형식을 확인해 주세요.'}`
-              : toGitHubUserMessage(error);
+            : error instanceof Error && error.message === 'REVIEW_PERMISSION_DENIED'
+              ? '이 명령을 실행할 권한이 없습니다. 필요 권한: REVIEWER'
+              : error instanceof Error && error.message === 'REPOSITORY_PAIR_REQUIRED'
+                ? 'owner와 repository는 함께 입력해야 합니다.'
+                : error instanceof Error &&
+                    (error.message === 'DEFAULT_REPOSITORY_UNAVAILABLE' ||
+                      error.message === 'DEFAULT_REPOSITORY_NOT_CONFIGURED')
+                  ? '현재 Discord 서버에 기본 GitHub 저장소가 연결되어 있지 않습니다. 서버 관리자에게 /github-connect 설정을 요청해 주세요.'
+                  : error instanceof ZodError
+                    ? `입력값이 올바르지 않습니다: ${error.issues[0]?.message ?? '형식을 확인해 주세요.'}`
+                    : toGitHubUserMessage(error);
         await interaction.editReply({
           content: message,
           embeds: [],

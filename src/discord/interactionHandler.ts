@@ -6,6 +6,8 @@ import { createGitHubCommands } from './commands/github.js';
 import { createReviewCommand } from './commands/review.js';
 import type { Octokit } from '@octokit/rest';
 import type { AiProvider } from '../ai/provider.js';
+import type { SettingsStore } from '../database/settingsStore.js';
+import { createSettingsCommands } from './commands/githubSettings.js';
 
 export function registerInteractionHandler(
   client: Client,
@@ -14,10 +16,16 @@ export function registerInteractionHandler(
     logger: pino.Logger;
     githubClient?: Octokit;
     aiProvider?: AiProvider;
+    settingsStore: SettingsStore;
   },
 ): void {
-  const githubCommands = createGitHubCommands(options.githubClient);
-  const reviewCommand = createReviewCommand(options.githubClient, options.aiProvider);
+  const githubCommands = createGitHubCommands(options.githubClient, options.settingsStore);
+  const reviewCommand = createReviewCommand(
+    options.githubClient,
+    options.aiProvider,
+    options.settingsStore,
+  );
+  const settingsCommands = createSettingsCommands(options.settingsStore, options.githubClient);
   const githubCommandNames = new Set([
     githubCommands.repo.data.name,
     githubCommands.issue.data.name,
@@ -31,6 +39,30 @@ export function registerInteractionHandler(
     [githubCommands.issue.data.name, (interaction) => githubCommands.issue.execute(interaction)],
     [githubCommands.pr.data.name, (interaction) => githubCommands.pr.execute(interaction)],
     [reviewCommand.data.name, (interaction) => reviewCommand.execute(interaction)],
+    [
+      settingsCommands.connect.data.name,
+      (interaction) => settingsCommands.connect.execute(interaction),
+    ],
+    [
+      settingsCommands.disconnect.data.name,
+      (interaction) => settingsCommands.disconnect.execute(interaction),
+    ],
+    [
+      settingsCommands.config.data.name,
+      (interaction) => settingsCommands.config.execute(interaction),
+    ],
+    [
+      settingsCommands.roleAdd.data.name,
+      (interaction) => settingsCommands.roleAdd.execute(interaction),
+    ],
+    [
+      settingsCommands.roleRemove.data.name,
+      (interaction) => settingsCommands.roleRemove.execute(interaction),
+    ],
+    [
+      settingsCommands.roles.data.name,
+      (interaction) => settingsCommands.roles.execute(interaction),
+    ],
   ]);
   client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;

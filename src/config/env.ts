@@ -14,6 +14,7 @@ const environmentSchema = z.object({
     z.string().regex(/^\d+$/, 'DISCORD_GUILD_ID must be a Discord snowflake'),
   ),
   GITHUB_TOKEN: z.string().min(1, 'GITHUB_TOKEN cannot be empty').optional(),
+  DATABASE_URL: z.string().min(1).default('file:./data/pachub.sqlite'),
   AI_PROVIDER: z.enum(['none', 'openai-compatible']).default('none'),
   AI_API_KEY: z.string().min(1).optional(),
   AI_BASE_URL: z.string().url().optional(),

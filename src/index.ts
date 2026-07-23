@@ -4,6 +4,7 @@ import { registerInteractionHandler } from './discord/interactionHandler.js';
 import { createGitHubClient } from './github/client.js';
 import { createAiProvider } from './ai/client.js';
 import { createLogger } from './utils/logger.js';
+import { SettingsStore } from './database/settingsStore.js';
 
 async function main(): Promise<void> {
   const environment = loadEnvironment();
@@ -14,11 +15,13 @@ async function main(): Promise<void> {
     ? createGitHubClient(environment.GITHUB_TOKEN)
     : undefined;
   const aiProvider = createAiProvider(environment);
+  const settingsStore = new SettingsStore(environment.DATABASE_URL);
   registerInteractionHandler(client, {
     environment: environment.NODE_ENV,
     logger,
     githubClient,
     aiProvider,
+    settingsStore,
   });
 
   client.once('ready', (readyClient) => {
@@ -37,6 +40,7 @@ async function main(): Promise<void> {
     stopping = true;
     logger.info({ signal }, 'Stopping Discord client');
     client.destroy();
+    settingsStore.close();
     process.exitCode = 0;
   };
   process.once('SIGINT', () => shutdown('SIGINT'));
