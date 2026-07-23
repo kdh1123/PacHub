@@ -3,17 +3,26 @@ import type pino from 'pino';
 
 import { pingCommand } from './commands/ping.js';
 import { createGitHubCommands } from './commands/github.js';
+import { createReviewCommand } from './commands/review.js';
 import type { Octokit } from '@octokit/rest';
+import type { AiProvider } from '../ai/provider.js';
 
 export function registerInteractionHandler(
   client: Client,
-  options: { environment: string; logger: pino.Logger; githubClient?: Octokit },
+  options: {
+    environment: string;
+    logger: pino.Logger;
+    githubClient?: Octokit;
+    aiProvider?: AiProvider;
+  },
 ): void {
   const githubCommands = createGitHubCommands(options.githubClient);
+  const reviewCommand = createReviewCommand(options.githubClient, options.aiProvider);
   const githubCommandNames = new Set([
     githubCommands.repo.data.name,
     githubCommands.issue.data.name,
     githubCommands.pr.data.name,
+    reviewCommand.data.name,
   ]);
   const cooldownUntilByUser = new Map<string, number>();
   const commands = new Map<string, (interaction: ChatInputCommandInteraction) => Promise<void>>([
@@ -21,6 +30,7 @@ export function registerInteractionHandler(
     [githubCommands.repo.data.name, (interaction) => githubCommands.repo.execute(interaction)],
     [githubCommands.issue.data.name, (interaction) => githubCommands.issue.execute(interaction)],
     [githubCommands.pr.data.name, (interaction) => githubCommands.pr.execute(interaction)],
+    [reviewCommand.data.name, (interaction) => reviewCommand.execute(interaction)],
   ]);
   client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;

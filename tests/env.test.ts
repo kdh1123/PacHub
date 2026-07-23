@@ -13,4 +13,14 @@ describe('loadEnvironment', () => {
   it('rejects missing Discord credentials without revealing values', () => {
     expect(() => loadEnvironment({ DISCORD_TOKEN: 'private-token' })).toThrow('DISCORD_CLIENT_ID');
   });
+
+  it('treats a blank optional guild ID as unset for global command registration', () => {
+    const env = loadEnvironment({
+      DISCORD_TOKEN: 'test-token',
+      DISCORD_CLIENT_ID: '1234567890',
+      DISCORD_GUILD_ID: '',
+    });
+
+    expect(env.DISCORD_GUILD_ID).toBeUndefined();
+  });
 });

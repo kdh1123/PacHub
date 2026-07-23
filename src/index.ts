@@ -2,6 +2,7 @@ import { loadEnvironment } from './config/env.js';
 import { createDiscordClient } from './discord/client.js';
 import { registerInteractionHandler } from './discord/interactionHandler.js';
 import { createGitHubClient } from './github/client.js';
+import { createAiProvider } from './ai/client.js';
 import { createLogger } from './utils/logger.js';
 
 async function main(): Promise<void> {
@@ -12,7 +13,13 @@ async function main(): Promise<void> {
   const githubClient = environment.GITHUB_TOKEN
     ? createGitHubClient(environment.GITHUB_TOKEN)
     : undefined;
-  registerInteractionHandler(client, { environment: environment.NODE_ENV, logger, githubClient });
+  const aiProvider = createAiProvider(environment);
+  registerInteractionHandler(client, {
+    environment: environment.NODE_ENV,
+    logger,
+    githubClient,
+    aiProvider,
+  });
 
   client.once('ready', (readyClient) => {
     logger.info(

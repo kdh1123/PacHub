@@ -1,6 +1,18 @@
-# Discord GitHub Collaboration Bot
+# PacHub — Discord GitHub Collaboration Bot
 
-Discord에서 개발 협업을 돕는 GitHub 봇입니다. 현재는 **2단계**로, Discord 상태와 GitHub 읽기 정보를 제공합니다. AI 리뷰, 코드 변경, Pull Request 생성은 아직 구현하지 않았습니다.
+> Discord 안에서 GitHub 저장소, 이슈, Pull Request를 조회하고 변경 위험을 검토할 수 있는 개발 협업 봇입니다.
+
+PacHub은 Discord를 개발 협업의 진입점으로 만드는 개인 개발 프로젝트입니다. 현재 GitHub 읽기 전용 조회, PR 변경사항의 규칙 기반 분석, 선택적 AI 보조 요약을 제공합니다. 코드 변경, Pull Request 생성, merge, 배포는 의도적으로 구현하지 않았습니다.
+
+## 현재 가능한 작업
+
+- `/ping` — 봇 상태와 응답 시간 확인
+- `/repo` — 저장소 정보 조회
+- `/issue` — 이슈 정보 조회
+- `/pr` — Pull Request·CI 상태 조회
+- `/review` — PR diff의 파일 분류, 위험 신호, 테스트 변경 여부 요약
+
+모든 GitHub 조회는 읽기 전용이며, Discord 응답은 멘션을 발생시키지 않도록 안전하게 처리합니다.
 
 ## 기술 스택
 
@@ -46,8 +58,17 @@ GitHub 조회에는 Fine-grained PAT 또는 GitHub App installation token을 사
 - `/repo owner:<소유자> repository:<저장소>` — 저장소 기본 정보
 - `/issue owner:<소유자> repository:<저장소> number:<번호>` — 이슈 정보
 - `/pr owner:<소유자> repository:<저장소> number:<번호>` — PR 통계, 리뷰 상태, CI 상태
+- `/review owner:<소유자> repository:<저장소> pr-number:<번호>` — PR diff의 규칙 기반 변경·위험 요약
 
 예를 들어 `/repo owner:octocat repository:Hello-World`처럼 GitHub URL이 아닌 소유자와 저장소 이름만 입력합니다. `.git` 접미사는 허용되며 제거됩니다. `/issue`는 본문 요약, 담당자, 라벨, 마일스톤, 댓글 수를 표시하며 PR 번호를 입력하면 `/pr` 사용을 안내합니다. `/pr`은 브랜치, 병합 가능 여부, 변경 통계, 리뷰어, 최신 SHA와 Check Run 기반 CI 상태를 보여줍니다.
+
+### `/review` 분석 범위
+
+`/review`는 모든 PR 변경 파일을 페이지 단위로 조회한 뒤, 최대 100개 파일과 10,000개 변경 줄 범위에서 분석합니다. lock·빌드·생성·바이너리 파일은 목록에는 남기되 상세 patch 분석에서 제외합니다. 파일 유형, 변경 성격 추정, 테스트 변경 여부, 비밀정보·위험 코드·파괴적 DB 구문·GitHub Actions 권한·UI·테스트 비활성화 패턴을 규칙 기반으로 표시합니다.
+
+AI 분석이나 실제 컴파일러 분석이 아니므로 결과는 확정된 취약점이 아닌 **검토 필요 신호**입니다. patch가 GitHub에서 제공되지 않거나 PR이 크면 일부만 분석될 수 있으며, 결과만으로 merge를 결정하면 안 됩니다. 비밀정보 의심 문자열은 마스킹하고 GitHub 데이터나 리뷰 댓글을 변경하지 않습니다.
+
+AI 보조 리뷰는 기본적으로 비활성화되어 있습니다. OpenAI 호환 API를 사용하려면 `.env`에 `AI_PROVIDER=openai-compatible`, `AI_API_KEY`, `AI_BASE_URL`, `AI_MODEL`을 모두 설정하세요. AI가 켜져도 `/review`의 규칙 기반 분석을 대체하지 않으며, PR의 제한된 patch 일부만 전송합니다. PR 본문과 diff는 신뢰할 수 없는 데이터로 취급하도록 프롬프트에 명시합니다.
 
 ## 검증
 
@@ -71,6 +92,7 @@ docker run --rm --env-file .env discord-github-bot
 - 구조화 로그는 토큰·Authorization 필드를 마스킹합니다.
 - 토큰과 내부 오류 세부 정보는 Discord 사용자에게 표시하지 않습니다.
 - GitHub 명령은 읽기 API만 호출하며, 쓰기 API·브랜치 생성·push·merge·배포는 구현하지 않았습니다.
+- `/review`은 최대 100개 파일, 파일당 50,000 patch 문자, 전체 500,000 patch 문자와 최대 30개 탐지 결과로 제한됩니다.
 - GitHub 본문은 요약하고 코드 블록과 Discord 멘션을 안전하게 처리합니다. 모든 GitHub 명령 응답은 Discord 멘션을 허용하지 않습니다.
 - GitHub API 요청은 10초 후 중단되며, 사용자별 GitHub 명령에는 3초 쿨다운이 적용됩니다.
 - 자동 수정은 이후 단계에서도 사람 승인과 별도 브랜치를 전제로 합니다.
@@ -82,6 +104,13 @@ docker run --rm --env-file .env discord-github-bot
 - **Rate Limit**: 잠시 기다린 뒤 다시 시도합니다. 봇은 요청을 자동으로 반복하지 않습니다.
 - **슬래시 명령어가 보이지 않음**: `npm run register-commands`를 다시 실행합니다. Guild ID가 없으면 전역 명령 반영에 시간이 걸릴 수 있습니다.
 - **GitHub 토큰 누락**: `.env`에 `GITHUB_TOKEN`을 설정한 뒤 `npm run dev`를 다시 실행합니다.
+
+## `/review` 수동 검증
+
+1. 테스트용 작은 PR을 만들고 `/review`를 실행합니다.
+2. 변경 파일 수와 테스트 변경 여부를 확인합니다.
+3. lock 파일과 이미지 파일이 상세 분석에서 제외되는지 확인합니다.
+4. 테스트용 위험 패턴 또는 대규모 PR에서 요약과 제한 표시를 확인합니다.
 
 ## 다음 단계
 
