@@ -8,6 +8,7 @@ import type { Octokit } from '@octokit/rest';
 import type { AiProvider } from '../ai/provider.js';
 import type { SettingsStore } from '../database/settingsStore.js';
 import { createSettingsCommands } from './commands/githubSettings.js';
+import { createAnalyzeIssueCommand } from './commands/analyzeIssue.js';
 
 export function registerInteractionHandler(
   client: Client,
@@ -26,11 +27,17 @@ export function registerInteractionHandler(
     options.settingsStore,
   );
   const settingsCommands = createSettingsCommands(options.settingsStore, options.githubClient);
+  const analyzeIssueCommand = createAnalyzeIssueCommand(
+    options.githubClient,
+    options.aiProvider,
+    options.settingsStore,
+  );
   const githubCommandNames = new Set([
     githubCommands.repo.data.name,
     githubCommands.issue.data.name,
     githubCommands.pr.data.name,
     reviewCommand.data.name,
+    analyzeIssueCommand.data.name,
   ]);
   const cooldownUntilByUser = new Map<string, number>();
   const commands = new Map<string, (interaction: ChatInputCommandInteraction) => Promise<void>>([
@@ -39,6 +46,7 @@ export function registerInteractionHandler(
     [githubCommands.issue.data.name, (interaction) => githubCommands.issue.execute(interaction)],
     [githubCommands.pr.data.name, (interaction) => githubCommands.pr.execute(interaction)],
     [reviewCommand.data.name, (interaction) => reviewCommand.execute(interaction)],
+    [analyzeIssueCommand.data.name, (interaction) => analyzeIssueCommand.execute(interaction)],
     [
       settingsCommands.connect.data.name,
       (interaction) => settingsCommands.connect.execute(interaction),
