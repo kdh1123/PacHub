@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createGitHubCommands } from '../src/discord/commands/github.js';
+import { createReviewCommand } from '../src/discord/commands/review.js';
 
 describe('GitHub Discord commands', () => {
   it('defers then safely edits a repository response', async () => {
@@ -49,5 +50,14 @@ describe('GitHub Discord commands', () => {
     expect(interaction.editReply).toHaveBeenCalledWith(
       expect.objectContaining({ allowedMentions: { parse: [] } }),
     );
+  });
+
+  it('places required command options before optional repository options', () => {
+    const commands = createGitHubCommands(undefined);
+    for (const command of [commands.issue, commands.pr, createReviewCommand(undefined)]) {
+      const options = command.data.toJSON().options ?? [];
+      const firstOptional = options.findIndex((option) => !option.required);
+      expect(options.slice(firstOptional + 1).every((option) => !option.required)).toBe(true);
+    }
   });
 });

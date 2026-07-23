@@ -87,18 +87,18 @@ export function createReviewCommand(
     data: new SlashCommandBuilder()
       .setName('review')
       .setDescription('Pull Request 변경사항을 규칙 기반으로 요약합니다.')
-      .addStringOption((option) =>
-        option.setName('owner').setDescription('소유자 또는 조직').setRequired(false),
-      )
-      .addStringOption((option) =>
-        option.setName('repository').setDescription('저장소 이름').setRequired(false),
-      )
       .addIntegerOption((option) =>
         option
           .setName('pr-number')
           .setDescription('Pull Request 번호')
           .setRequired(true)
           .setMinValue(1),
+      )
+      .addStringOption((option) =>
+        option.setName('owner').setDescription('소유자 또는 조직').setRequired(false),
+      )
+      .addStringOption((option) =>
+        option.setName('repository').setDescription('저장소 이름').setRequired(false),
       ),
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
       await interaction.deferReply({ ephemeral: true });

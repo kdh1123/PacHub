@@ -117,14 +117,14 @@ export function createGitHubCommands(client: Octokit | undefined, store?: Settin
       data: new SlashCommandBuilder()
         .setName('issue')
         .setDescription('GitHub 이슈를 조회합니다.')
+        .addIntegerOption((option) =>
+          option.setName('number').setDescription('이슈 번호').setRequired(true).setMinValue(1),
+        )
         .addStringOption((option) =>
           option.setName('owner').setDescription('소유자 또는 조직').setRequired(false),
         )
         .addStringOption((option) =>
           option.setName('repository').setDescription('저장소 이름').setRequired(false),
-        )
-        .addIntegerOption((option) =>
-          option.setName('number').setDescription('이슈 번호').setRequired(true).setMinValue(1),
         ),
       async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ ephemeral: true });
@@ -190,14 +190,14 @@ export function createGitHubCommands(client: Octokit | undefined, store?: Settin
       data: new SlashCommandBuilder()
         .setName('pr')
         .setDescription('GitHub Pull Request를 조회합니다.')
+        .addIntegerOption((option) =>
+          option.setName('number').setDescription('PR 번호').setRequired(true).setMinValue(1),
+        )
         .addStringOption((option) =>
           option.setName('owner').setDescription('소유자 또는 조직').setRequired(false),
         )
         .addStringOption((option) =>
           option.setName('repository').setDescription('저장소 이름').setRequired(false),
-        )
-        .addIntegerOption((option) =>
-          option.setName('number').setDescription('PR 번호').setRequired(true).setMinValue(1),
         ),
       async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.deferReply({ ephemeral: true });
