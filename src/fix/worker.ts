@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Octokit } from '@octokit/rest';
 import type { Environment } from '../config/env.js';
+import { findOrCreateDraftPullRequest } from '../github/fixPullRequests.js';
 import { runSafe } from './commandRunner.js';
 import { canRunWorker } from './workerPolicy.js';
 import { validateModifications } from './patchValidator.js';
@@ -177,27 +178,160 @@ export class LocalFixWorker implements FixTaskWorker {
   async resumeAfterSecondApproval(taskId: string): Promise<FixWorkerResult> {
     const task = this.tasks.get(taskId);
     if (!task || task.status !== 'SECOND_APPROVED') return out(taskId, 'FAILED', ['INVALID_STATE']);
-    if (!this.env.FIX_PUSH_ENABLED || !this.env.GITHUB_WRITE_TOKEN || !this.writeClient)
+    const gate = canRunWorker(this.env, `${task.owner}/${task.repository}`);
+    if (
+      !this.env.FIX_PUSH_ENABLED ||
+      !this.env.GITHUB_WRITE_TOKEN ||
+      !this.writeClient ||
+      !gate.allowed
+    )
       return this.fail(
         taskId,
         'SECOND_APPROVED',
         'PUSH_DISABLED',
-        'push is disabled or write token missing',
+        'push is disabled, write token missing, or repository is not allowed',
       );
-    return this.fail(
-      taskId,
-      'SECOND_APPROVED',
-      'NOT_IMPLEMENTED',
-      'remote write requires a separately isolated worker',
-    );
+    if (!this.env.GIT_BOT_NAME || !this.env.GIT_BOT_EMAIL)
+      return this.fail(
+        taskId,
+        'SECOND_APPROVED',
+        'COMMIT_CONFIG_MISSING',
+        'bot commit identity missing',
+      );
+    try {
+      const root = await new WorkspaceManager(this.env.FIX_WORKSPACE_ROOT).existingRepositoryPath(
+        task.id,
+      );
+      const branch = (
+        await runSafe('git', ['branch', '--show-current'], root, 30_000)
+      ).stdout.trim();
+      if (branch !== task.workBranch || protectedBranches.has(branch.toLowerCase()))
+        throw new Error('WORK_BRANCH_MISMATCH');
+      const status = await runSafe('git', ['status', '--porcelain'], root, 30_000);
+      const changed = status.stdout
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => line.slice(3));
+      if (
+        !changed.length ||
+        changed.some(
+          (path) => !task.changedFiles?.includes(path) || !task.plannedFiles.includes(path),
+        )
+      )
+        throw new Error('STAGE_SCOPE_MISMATCH');
+      const numstat = await runSafe('git', ['diff', '--numstat'], root, 30_000);
+      const currentHash = createHash('sha256')
+        .update(status.stdout + numstat.stdout)
+        .digest('hex');
+      if (
+        currentHash !== task.diffSummary?.approvalHash ||
+        task.diffSummary.risk === 'HIGH' ||
+        task.diffSummary.risk === 'CRITICAL'
+      )
+        throw new Error('SECOND_APPROVAL_HASH_MISMATCH');
+      if (
+        !task.validationResults?.length ||
+        task.validationResults.some((result) => !result.success)
+      )
+        throw new Error('VALIDATION_FAILED');
+      this.move(taskId, 'SECOND_APPROVED', 'COMMITTING');
+      await runSafe('git', ['config', 'user.name', this.env.GIT_BOT_NAME], root, 30_000);
+      await runSafe('git', ['config', 'user.email', this.env.GIT_BOT_EMAIL], root, 30_000);
+      await runSafe('git', ['add', '--', ...changed], root, 30_000);
+      const staged = await runSafe('git', ['diff', '--cached', '--name-only'], root, 30_000);
+      if (
+        staged.stdout.split('\n').filter(Boolean).sort().join('\n') !==
+        [...changed].sort().join('\n')
+      )
+        throw new Error('STAGE_SCOPE_MISMATCH');
+      await runSafe(
+        'git',
+        ['commit', '-m', `fix: resolve issue #${task.issueNumber}`],
+        root,
+        60_000,
+      );
+      const commitSha = (await runSafe('git', ['rev-parse', 'HEAD'], root, 30_000)).stdout.trim();
+      this.tasks.update(taskId, { commitSha, committedAt: new Date().toISOString() });
+      this.move(taskId, 'COMMITTING', 'PUSHING');
+      const remote = await runSafe(
+        'git',
+        ['ls-remote', '--heads', 'origin', task.workBranch],
+        root,
+        30_000,
+      );
+      if (remote.stdout.trim()) throw new Error('REMOTE_BRANCH_ALREADY_EXISTS');
+      const auth = Buffer.from(`x-access-token:${this.env.GITHUB_WRITE_TOKEN}`).toString('base64');
+      await runSafe(
+        'git',
+        ['push', 'origin', `refs/heads/${task.workBranch}:refs/heads/${task.workBranch}`],
+        root,
+        60_000,
+        {
+          ...process.env,
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+          GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${auth}`,
+        },
+      );
+      this.tasks.update(taskId, {
+        pushedAt: new Date().toISOString(),
+        remoteBranch: task.workBranch,
+        pushSucceeded: 'true',
+      });
+      this.move(taskId, 'PUSHING', 'CREATING_PR');
+      const pr = await findOrCreateDraftPullRequest(this.writeClient, {
+        owner: task.owner,
+        repository: task.repository,
+        head: task.workBranch,
+        base: task.baseBranch,
+        title: `fix: resolve issue #${task.issueNumber}`,
+        body: `## 연결된 이슈\n\nCloses #${task.issueNumber}\n\n## 검증 결과\n\n검증된 변경사항입니다.\n\n## 안내\n\n이 Pull Request에는 자동화 도구 또는 AI가 생성한 변경이 포함되어 있으며, 병합 전 사람의 검토가 필요합니다. 자동 merge와 자동 배포는 수행되지 않습니다.`,
+      });
+      this.tasks.update(taskId, {
+        pullRequestNumber: pr.number,
+        pullRequestUrl: pr.url,
+        pullRequestDraft: 'true',
+        completedAt: new Date().toISOString(),
+      });
+      this.move(taskId, 'CREATING_PR', 'COMPLETED');
+      await this.cleanup(task);
+      return {
+        taskId,
+        status: 'COMPLETED',
+        changedFiles: changed,
+        validationPassed: true,
+        secondApprovalRequired: false,
+        pullRequestUrl: pr.url,
+        warnings: pr.reused ? ['DUPLICATE_PR_FOUND'] : [],
+      };
+    } catch (error) {
+      const current = this.tasks.get(taskId);
+      return this.fail(
+        taskId,
+        current?.status,
+        'PUSH_OR_PR_FAILED',
+        error instanceof Error ? error.message : 'write failure',
+      );
+    }
   }
   async cancelTask(taskId: string): Promise<void> {
     const task = this.tasks.get(taskId);
     if (!task) return;
     if (
-      ['WAITING_APPROVAL', 'APPROVED', 'PREPARING_WORKSPACE', 'WAITING_SECOND_APPROVAL'].includes(
-        task.status,
-      )
+      [
+        'WAITING_APPROVAL',
+        'APPROVED',
+        'PREPARING_WORKSPACE',
+        'CLONING',
+        'CHECKING_OUT_BASE',
+        'CREATING_BRANCH',
+        'GENERATING_PATCH',
+        'APPLYING_PATCH',
+        'VALIDATING_SCOPE',
+        'RUNNING_CHECKS',
+        'ANALYZING_DIFF',
+        'WAITING_SECOND_APPROVAL',
+      ].includes(task.status)
     ) {
       this.tasks.transition(taskId, task.status, 'CANCELLED');
       await new WorkspaceManager(this.env.FIX_WORKSPACE_ROOT)
@@ -259,5 +393,11 @@ export class LocalFixWorker implements FixTaskWorker {
       }
     }
     return results;
+  }
+  private async cleanup(task: { id: string }): Promise<void> {
+    await new WorkspaceManager(this.env.FIX_WORKSPACE_ROOT)
+      .cleanup(task.id)
+      .then(() => this.tasks.update(task.id, { cleanupStatus: 'COMPLETED' }))
+      .catch(() => this.tasks.update(task.id, { cleanupStatus: 'FAILED' }));
   }
 }

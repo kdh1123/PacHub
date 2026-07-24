@@ -9,6 +9,7 @@ import { createSettingsCommands } from './commands/githubSettings.js';
 import { createAnalyzeIssueCommand } from './commands/analyzeIssue.js';
 import { FixTaskStore } from '../fix/taskStore.js';
 import { createFixIssueCommand } from './commands/fixIssue.js';
+import { createFixTaskControls } from './commands/fixTaskControls.js';
 
 async function main(): Promise<void> {
   const environment = loadEnvironment();
@@ -20,6 +21,26 @@ async function main(): Promise<void> {
   const analyzeIssueCommand = createAnalyzeIssueCommand(undefined, undefined, store);
   const fixTasks = new FixTaskStore(environment.DATABASE_URL);
   const fixIssueCommand = createFixIssueCommand(undefined, undefined, store, fixTasks);
+  const noWorker = {
+    executeApprovedTask: async () => ({
+      taskId: '',
+      status: 'FAILED' as const,
+      changedFiles: [],
+      validationPassed: false,
+      secondApprovalRequired: false,
+      warnings: [],
+    }),
+    resumeAfterSecondApproval: async () => ({
+      taskId: '',
+      status: 'FAILED' as const,
+      changedFiles: [],
+      validationPassed: false,
+      secondApprovalRequired: false,
+      warnings: [],
+    }),
+    cancelTask: async () => undefined,
+  };
+  const fixControls = createFixTaskControls(fixTasks, noWorker, store);
   const body = [
     pingCommand.data.toJSON(),
     githubCommands.repo.data.toJSON(),
@@ -28,6 +49,8 @@ async function main(): Promise<void> {
     reviewCommand.data.toJSON(),
     analyzeIssueCommand.data.toJSON(),
     fixIssueCommand.data.toJSON(),
+    fixControls.status.data.toJSON(),
+    fixControls.cancel.data.toJSON(),
     settingsCommands.connect.data.toJSON(),
     settingsCommands.disconnect.data.toJSON(),
     settingsCommands.config.data.toJSON(),

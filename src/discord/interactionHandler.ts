@@ -12,6 +12,7 @@ import { createAnalyzeIssueCommand } from './commands/analyzeIssue.js';
 import { createFixIssueCommand } from './commands/fixIssue.js';
 import type { FixTaskStore } from '../fix/taskStore.js';
 import { authorize } from '../security/authorization.js';
+import { createFixTaskControls } from './commands/fixTaskControls.js';
 import type { FixTaskWorker } from '../fix/types.js';
 
 export function registerInteractionHandler(
@@ -44,6 +45,11 @@ export function registerInteractionHandler(
     options.settingsStore,
     options.fixTaskStore,
   );
+  const fixControls = createFixTaskControls(
+    options.fixTaskStore,
+    options.fixWorker,
+    options.settingsStore,
+  );
   const githubCommandNames = new Set([
     githubCommands.repo.data.name,
     githubCommands.issue.data.name,
@@ -61,6 +67,8 @@ export function registerInteractionHandler(
     [reviewCommand.data.name, (interaction) => reviewCommand.execute(interaction)],
     [analyzeIssueCommand.data.name, (interaction) => analyzeIssueCommand.execute(interaction)],
     [fixIssueCommand.data.name, (interaction) => fixIssueCommand.execute(interaction)],
+    [fixControls.status.data.name, (interaction) => fixControls.status.execute(interaction)],
+    [fixControls.cancel.data.name, (interaction) => fixControls.cancel.execute(interaction)],
     [
       settingsCommands.connect.data.name,
       (interaction) => settingsCommands.connect.execute(interaction),

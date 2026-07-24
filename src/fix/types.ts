@@ -82,6 +82,13 @@ export interface FixTask {
   commitSha?: string;
   pullRequestNumber?: number;
   pullRequestUrl?: string;
+  committedAt?: string;
+  pushedAt?: string;
+  remoteBranch?: string;
+  pushSucceeded?: string;
+  pullRequestDraft?: string;
+  completedAt?: string;
+  cancelReason?: string;
   cleanupStatus?: string;
   failureStage?: string;
   errorCode?: string;
@@ -144,6 +151,10 @@ export const transitions: Partial<Record<FixStatus, FixStatus[]>> = {
   ANALYZING_DIFF: ['WAITING_SECOND_APPROVAL', 'FAILED', 'CANCELLED'],
   WAITING_SECOND_APPROVAL: ['SECOND_APPROVED', 'SECOND_REJECTED', 'EXPIRED', 'CANCELLED'],
   SECOND_APPROVED: ['COMMITTING', 'FAILED'],
+  SECOND_REJECTED: ['CLEANING_UP'],
+  EXPIRED: ['CLEANING_UP'],
+  CANCELLED: ['CLEANING_UP'],
+  CLEANING_UP: ['CANCELLED', 'COMPLETED', 'FAILED'],
   COMMITTING: ['PUSHING', 'FAILED'],
   PUSHING: ['CREATING_PR', 'FAILED'],
   CREATING_PR: ['COMPLETED', 'FAILED'],
