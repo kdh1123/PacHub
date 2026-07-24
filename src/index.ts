@@ -5,6 +5,8 @@ import { createGitHubClient } from './github/client.js';
 import { createAiProvider } from './ai/client.js';
 import { createLogger } from './utils/logger.js';
 import { SettingsStore } from './database/settingsStore.js';
+import { FixTaskStore } from './fix/taskStore.js';
+import { LocalFixWorker } from './fix/worker.js';
 
 async function main(): Promise<void> {
   const environment = loadEnvironment();
@@ -16,12 +18,29 @@ async function main(): Promise<void> {
     : undefined;
   const aiProvider = createAiProvider(environment);
   const settingsStore = new SettingsStore(environment.DATABASE_URL);
+  const fixTaskStore = new FixTaskStore(environment.DATABASE_URL);
+  const fixWorker = new LocalFixWorker(
+    fixTaskStore,
+    environment,
+    environment.GITHUB_WRITE_TOKEN ? createGitHubClient(environment.GITHUB_WRITE_TOKEN) : undefined,
+    aiProvider && aiProvider.generateModification
+      ? {
+          generateModification: (input) =>
+            aiProvider.generateModification!(input).then((result) => {
+              if (!result) throw new Error('MODIFICATION_AGENT_UNAVAILABLE');
+              return result;
+            }),
+        }
+      : undefined,
+  );
   registerInteractionHandler(client, {
     environment: environment.NODE_ENV,
     logger,
     githubClient,
     aiProvider,
     settingsStore,
+    fixTaskStore,
+    fixWorker,
   });
 
   client.once('ready', (readyClient) => {
@@ -41,6 +60,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'Stopping Discord client');
     client.destroy();
     settingsStore.close();
+    fixTaskStore.close();
     process.exitCode = 0;
   };
   process.once('SIGINT', () => shutdown('SIGINT'));

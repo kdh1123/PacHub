@@ -153,3 +153,11 @@ docker run --rm --env-file .env discord-github-bot
 ## 다음 단계
 
 PR 변경사항을 규칙 기반으로 요약하는 `/review`를 다음 단계에서 추가할 수 있습니다.
+
+## 실제 Fix 워커 (7단계)
+
+`/fix-issue`의 실제 워커는 기본적으로 비활성화됩니다: `FIX_WORKER_ENABLED=false`, `FIX_PUSH_ENABLED=false`. 빈 `FIX_ALLOWED_REPOSITORIES`는 모든 실제 변경을 차단하며, 목록에는 대소문자를 무시하는 정확한 `owner/repository`만 쉼표로 등록합니다. 읽기 API는 `GITHUB_TOKEN`, 실제 작업은 별도 `GITHUB_WRITE_TOKEN`을 사용합니다. 쓰기 토큰은 DB, 로그, Discord 메시지, remote URL에 저장하지 않습니다.
+
+첫 번째 ADMIN 승인은 UUID 기반 격리 작업 공간의 clone·작업 브랜치·제한된 AI 수정안·범위 검사·`lint/typecheck/test/build` 검증까지만 허용합니다. 두 번째 ADMIN 승인 전에는 commit, push, PR 생성이 없습니다. 비밀정보, HIGH/CRITICAL 위험, 금지 경로, 삭제/lock/workflow/migration/의존성 변경 또는 검증 실패는 중단합니다. 두 번째 승인은 15분 후 만료합니다. Push가 명시적으로 활성화되더라도 새 작업 브랜치 하나만 Draft PR로 제출하며 force push, base branch 직접 push, 자동 merge, 자동 배포는 수행하지 않습니다.
+
+수동 통합 검증은 별도 테스트 GitHub 저장소에서만 수행하세요. allowlist와 테스트 전용 쓰기 토큰을 제한하고 worker만 켠 뒤 1차 승인과 로컬 검증을 확인합니다. 이후 push를 켜서 2차 거절(원격 변경 없음), 2차 승인(Draft PR만 생성), 검증 실패/토큰 누락/허용되지 않은 저장소의 차단을 확인합니다. 운영 환경에서는 별도 non-root 격리 워커와 전용 workspace volume을 사용하고 Docker socket, privileged mode, host filesystem 마운트는 사용하지 마세요.

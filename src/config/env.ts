@@ -14,6 +14,29 @@ const environmentSchema = z.object({
     z.string().regex(/^\d+$/, 'DISCORD_GUILD_ID must be a Discord snowflake'),
   ),
   GITHUB_TOKEN: z.string().min(1, 'GITHUB_TOKEN cannot be empty').optional(),
+  GITHUB_WRITE_TOKEN: z.string().min(1).optional(),
+  FIX_WORKER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  FIX_PUSH_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  FIX_ALLOWED_REPOSITORIES: z.string().default(''),
+  FIX_WORKSPACE_ROOT: z.string().min(1).default('/tmp/discord-github-bot-tasks'),
+  FIX_TASK_TIMEOUT_MINUTES: z.coerce.number().int().min(1).max(60).default(20),
+  FIX_SECOND_APPROVAL_TTL_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
+  FIX_MAX_FILES: z.coerce.number().int().min(1).max(20).default(10),
+  FIX_MAX_NEW_FILES: z.coerce.number().int().min(0).max(5).default(3),
+  FIX_MAX_CHANGED_LINES: z.coerce.number().int().min(1).max(2000).default(1000),
+  FIX_MAX_FILE_CHANGED_LINES: z.coerce.number().int().min(1).max(500).default(400),
+  FIX_ALLOW_DEPENDENCY_INSTALL: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+  GIT_BOT_NAME: optionalNonEmptyString(z.string().min(1)),
+  GIT_BOT_EMAIL: optionalNonEmptyString(z.string().email()),
   DATABASE_URL: z.string().min(1).default('file:./data/pachub.sqlite'),
   AI_PROVIDER: z.enum(['none', 'openai-compatible']).default('none'),
   AI_API_KEY: z.string().min(1).optional(),

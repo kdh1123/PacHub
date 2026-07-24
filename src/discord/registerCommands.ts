@@ -7,6 +7,8 @@ import { createReviewCommand } from './commands/review.js';
 import { SettingsStore } from '../database/settingsStore.js';
 import { createSettingsCommands } from './commands/githubSettings.js';
 import { createAnalyzeIssueCommand } from './commands/analyzeIssue.js';
+import { FixTaskStore } from '../fix/taskStore.js';
+import { createFixIssueCommand } from './commands/fixIssue.js';
 
 async function main(): Promise<void> {
   const environment = loadEnvironment();
@@ -16,6 +18,8 @@ async function main(): Promise<void> {
   const reviewCommand = createReviewCommand(undefined, undefined, store);
   const settingsCommands = createSettingsCommands(store);
   const analyzeIssueCommand = createAnalyzeIssueCommand(undefined, undefined, store);
+  const fixTasks = new FixTaskStore(environment.DATABASE_URL);
+  const fixIssueCommand = createFixIssueCommand(undefined, undefined, store, fixTasks);
   const body = [
     pingCommand.data.toJSON(),
     githubCommands.repo.data.toJSON(),
@@ -23,6 +27,7 @@ async function main(): Promise<void> {
     githubCommands.pr.data.toJSON(),
     reviewCommand.data.toJSON(),
     analyzeIssueCommand.data.toJSON(),
+    fixIssueCommand.data.toJSON(),
     settingsCommands.connect.data.toJSON(),
     settingsCommands.disconnect.data.toJSON(),
     settingsCommands.config.data.toJSON(),
